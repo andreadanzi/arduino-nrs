@@ -1,0 +1,12 @@
+First, generate your identity key on arduino board (nrs01)
+
+dropbearkey -t rsa -f ~/.ssh/id_rsa
+
+Since dropbear stores its keys in different format, it needs to be converted for a standard SSH server:
+
+dropbearkey -y -f ~/.ssh/id_rsa | grep "^ssh-rsa " >> authorized_keys
+
+Now copy or (concatenate) "authorized_keys" to ~/.ssh on "webhost". Ensure that permissions on this file are set to 600.
+You should now be able to ssh without a password.
+
+root@nas:~# ssh user@webhost -i ~/.ssh/id_rsa
