@@ -1,0 +1,47 @@
+configurazione nuovo YUN
+
+- inserire SD card con una cartella Arduino vuota
+- connetteresi alla rete WiFi dell'arduino Arduino YUN-XXXX
+- andare con browser su http://arduino.local , password arduino e verificare che indirizzo IP è 192.168.240.1
+- aggiornare il firmare:
+  - copiare sulla root dell'SD il firmare
+    scp openwrt-ar71xx-generic-yun-16M-squashfs-sysupgrade.bin root@192.168.240.1:/mnt/sd   
+  - aggiornare da interfaccia web il firmare
+- configurare la connettività wireless
+  - da interfaccia web 
+    - Yún name *: rdyun02
+    - Configurazione WiFi (WPA)
+- espandere la memoria con YunDiskSpaceExpander
+  - aprire IDE e caricare lo sketch
+  - eseguire l'upload dello sketc
+  - aprire la seriale, selezinare a capo (NL)
+  - attendere le istruzioni, fino dopo al rst
+- installare la roba per python come su http://tavendo.com/blog/post/arduino-yun-with-autobahn/
+  - creare cartella src e log all'interno della SD
+  - twisted
+  - pyserial
+  - ntplib
+
+- disabilitare serial1 in /etc/inittab
+  -# ttyATH0::askfirst:/bin/ash --login
+
+- Configurare dropbear per le chiavi ssh, ricordarsi di fare prima una connessione ssh in modo che la cartella .ssh ci sia
+  >dropbearkey -t rsa -f ~/.ssh/id_rsa
+  >dropbearkey -y -f ~/.ssh/id_rsa | grep "^ssh-rsa " >> authorized_keys
+  >appendere authorized_keys nell'host di destinazione
+
+- Salvarsi il mac address e configurare il router (rdyun02 è  90:A2:DA:F0:31:CE => 192.168.1.19) per assegnazione statica IP
+
+- Caricare lo sketch serial_imu su slave
+
+- Copiare in /mnt/sd/src dello slave
+    scp udp_mc_client_serial.py root@192.168.1.19:/mnt/sd/src
+    scp udp_mc_client.conf  root@192.168.1.19:/mnt/sd/src
+
+    lanciare twistd -ny udp_mc_client_serial.py
+
+- Lanciare da master
+    python udp_mc_start.py -c SYNC
+
+
+
