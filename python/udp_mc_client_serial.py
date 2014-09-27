@@ -21,6 +21,7 @@ from serial import Serial
 from datetime import datetime
 from twisted.application import internet, service
 from twisted.internet.protocol import DatagramProtocol
+from twisted.internet import threads
 import logging
 from logging import handlers
 import ConfigParser
@@ -53,7 +54,7 @@ class ImuSerial(Serial):
         #ensure that a reasonable timeout is set
         timeout = kwargs.get('timeout',0.1)
         if timeout < 0.01: timeout = 0.01
-        kwargs['timeout'] = timeout
+        kwargs['timeout'] = 0.01
         Serial.__init__(self, *args, **kwargs)
         self.buf = ''
         self.lastMillis = 0
@@ -62,6 +63,7 @@ class ImuSerial(Serial):
     
     def add_message_handler(self,key, func):
         self.messaggehandlers[key] = func
+        logger.info("ImuSerial:add_message_handler %s with key %s" %(func.__name__, key))
     
     def send_message(self, strData):
         retBytes = self.write(chr(START_MSG))
@@ -85,9 +87,13 @@ class ImuSerial(Serial):
                 _func = self.messaggehandlers[handlerKey]
                 if callable(_func):
                     _func(rec_array)
+                else:
+                    logger.error("object %s for key %s not callable" %(str(_func),handlerKey))
             except ValueError:
+                logger.error("call to %s with key %s failed!" %(_func.__name__, handlerKey))
                 pass
         else:
+            logger.error("Something wrong for key %s" % handlerKey)
             pass
             
     def exit(self):
@@ -113,6 +119,9 @@ class ImuSerial(Serial):
                     data = ord(self.read())
         return messaggehandler_key, received_data
 
+
+def am_i_alive():
+    logger.info("Alive")
 
 #parse data with 10 bytes (only acceleration)
 def parse_data_message(received_data):
@@ -158,6 +167,7 @@ class Iterator(threading.Thread):
         self.serialComm = serialComm
     
     def run(self):
+        print "Iterator:run started!"
         while 1:
             try:
                 while self.serialComm.available():
@@ -166,11 +176,13 @@ class Iterator(threading.Thread):
             except (AttributeError, serial.SerialException, OSError), e:
                 # this way we can kill the thread by setting the board object
                 # to None, or when the serial port is closed by board.exit()
+                print "Iterator:run AttributeError raised"
                 break
             except Exception, e:
                 # catch 'error: Bad file descriptor'
                 # iterate may be called while the serial port is being closed,
                 # causing an "error: (9, 'Bad file descriptor')"
+                print "Iterator:run Exception raised"
                 if getattr(e, 'errno', None) == 9:
                     break
                 try:
@@ -293,6 +305,32 @@ class Py2Log:
         retData = self.imuserial.send_message(strdata)
         self.infologger.info("Py2Log::sendData('%s') has sent %d bytes" % (strdata,retData))
 
+    def iterateLoop(self):
+        while 1:
+            try:
+                while self.imuserial.available():
+                    self.imuserial.iterate()
+                    time.sleep(0.0005)
+            except (AttributeError, serial.SerialException, OSError), e:
+                # this way we can kill the thread by setting the board object
+                # to None, or when the serial port is closed by board.exit()
+                print "Py2Log::iterateLoop AttributeError raised"
+                break
+            except Exception, e:
+                # catch 'error: Bad file descriptor'
+                # iterate may be called while the serial port is being closed,
+                # causing an "error: (9, 'Bad file descriptor')"
+                print "Py2Log::iterateLoop Exception raised"
+                if getattr(e, 'errno', None) == 9:
+                    break
+                try:
+                    if e[0] == 9:
+                        break
+                except (TypeError, IndexError):
+                    pass
+                raise
+
+
     def iterate(self):
         while self.imuserial.available():
             self.imuserial.iterate()       
@@ -378,6 +416,10 @@ class NrsSyncClientProtocol(DatagramProtocol):
             self.py2log.stopBoard()
             logger.info("NrsSyncClientProtocol:datagramReceived %s from %s:%d" % (datagram,host, port))
             self.transport.write("STOP received", (host, port))
+        if datagram[:6] == "STATUS":
+            self.py2log.boardStatus()
+            logger.info("NrsSyncClientProtocol:datagramReceived %s from %s:%d" % (datagram,host, port))
+            self.transport.write("STATUS received", (host, port))
         if datagram[:6] == "GETLOG":
             copyed_size, copyed_items = sendDataLog(True)
             self.sendLog(copyed_size, copyed_items)
@@ -397,8 +439,7 @@ class CustomTimerService(internet.TimerService):
         py2log.exitBoard()
         logger.info("CustomTimerService:stopService, send_log returns %d:%d" % (copyed_size , copyed_items))
         internet.TimerService.stopService(self)
-
-            
+           
 class SyncMulticatstSlave(object):
 
     def send_log(self, proto,sendAll=False):
@@ -417,8 +458,10 @@ class SyncMulticatstSlave(object):
         proto.set_py2log(p2log)
         root.addService(internet.MulticastServer(int(config.get('udp', 'port')), proto))
         logger.info("MulticastServer added!")
-        #root.addService(internet.TimerService(0.0005, p2log.iterate))
-        p2log.startIterator()
+        root.addService(internet.TimerService(60, am_i_alive))
+        #p2log.startIterator()
+        threads.deferToThread(p2log.iterateLoop)
+        #root.addService(internet.TimerService(0.001, p2log.iterate))
         logger.info("Iterator Started!")
         root.addService(CustomTimerService(float(config.get('timer', 'send_log_interval')), self.send_log, proto, False))
         logger.info("CustomTimerService added!")

@@ -188,7 +188,13 @@ while True:
                 #time.sleep(2)
         if reply == 'log':
             logger.info("User enters LOG command")
-            xbee.tx_long_addr(dest_addr='\x00\x00\x00\x00\x00\x00\xFF\xFF',data='L')
+            for key in subscribed_nodes:
+                addr, status = subscribed_nodes[key]
+                xbee.tx(dest_addr=addr,data='L')
+                logger.info(" 'L' sent to %02d" % key)
+                print " 'L' sent to %02d" % key
+                time.sleep(1)
+            #xbee.tx_long_addr(dest_addr='\x00\x00\x00\x00\x00\x00\xFF\xFF',data='L')
         if reply == 'get':
             logger.info("User enters READ command")
             xbee.tx_long_addr(dest_addr='\x00\x00\x00\x00\x00\x00\xFF\xFF',data='R')
