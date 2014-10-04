@@ -6,15 +6,20 @@ Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(30301);
 Adafruit_LSM303_Mag_Unified   mag   = Adafruit_LSM303_Mag_Unified(30302);
 Adafruit_L3GD20_Unified       gyro  = Adafruit_L3GD20_Unified(20);
 unsigned long millisAtSetup; 
+unsigned long start = 0;
 unsigned long millisNow; 
+unsigned long millisdelay = 0; 
 unsigned long millisDelta;
-unsigned long lastTick = 0;
+unsigned long logTick = 0;
 unsigned long lastSyncTick = 0;
+unsigned long ireg = 0;
 short loggingStatus = 0;
-unsigned long syncInterval = 120000; // 120000 = 20 minuti
-unsigned long pauseInterval = 5000; // 5 secondi
-// unsigned long baudrate = 115200
-unsigned long baudrate = 115200;
+unsigned long syncInterval = 360000; // 300000 = 5 minuti
+unsigned long idelay = 0; // 3 secondi
+unsigned long startInterval = 15000; // 15 secondi  
+unsigned long serialbaudrate = 115200;
+unsigned long arduinobaudrate = 115200;
+unsigned long last_tick = 0;
 /*******************
 * Creato uno script python udp_mc_client.py che dialoga tramite Firmata con questo sketch per
 * 1) leggere i dati dei sensori e metterli su disco
@@ -31,13 +36,14 @@ byte DATA_SYNC = 0x71;
 byte DATA_ACK = 0x7E;
 byte DATA_10B = 0x7F;
 byte DATA_26B = 0x7D;
-byte DATA_TYPE = 0x44;
-byte SYNC_TYPE = 0x53;
+byte DATA_14BA = 0x7A;
+byte DATA_14BM = 0x7B;
+byte DATA_14BG = 0x7C;
 byte END_MSG = 0x0A;
 byte START_MSG = 0xAA;
 int msgBytesRead = 0;
 byte storedInputData[32];
-boolean parsingMessage;
+boolean parsingMessage = false;
 typedef void (*stringCallbackFunction)(char*);
 
 stringCallbackFunction currentStringCallback;
@@ -73,72 +79,125 @@ void processSerialInput(void) {
   }
 }
 
-void sendStatus(unsigned long thisTick) {  
-  byte mydata[10];
+void sendStatus(unsigned long thisTick, int mode) {  
+  byte mydata[9];
   mydata[0] = START_MSG;      
-  mydata[1] = DATA_TYPE; // 0x44 D=DATA; 0x53 S=SYNC
-  mydata[2] = DATA_ACK; // DATA_SYNC
-  mydata[3] = (int)((thisTick >> 24) & 0xFF) ;
-  mydata[4] = (int)((thisTick >> 16) & 0xFF) ;
-  mydata[5] = (int)((thisTick >> 8) & 0XFF);
-  mydata[6] = (int)(thisTick & 0XFF);
-  mydata[7] = (int)(loggingStatus & 0XFF);
-  mydata[8] = (int)((loggingStatus >>8 ) & 0XFF);
-  mydata[9] = END_MSG;
-  int numBytes = Serial1.write(mydata,10);
-  Serial.print("sendStatus sents ");
+  mydata[1] = DATA_ACK; // DATA_ACK
+  mydata[2] = (int)((thisTick >> 24) & 0xFF) ;
+  mydata[3] = (int)((thisTick >> 16) & 0xFF) ;
+  mydata[4] = (int)((thisTick >> 8) & 0XFF);
+  mydata[5] = (int)(thisTick & 0XFF);
+  mydata[6] = (int)(loggingStatus & 0XFF);
+  mydata[7] = (int)((loggingStatus >>8 ) & 0XFF);
+  mydata[8] = END_MSG;
+  int numBytes = Serial1.write(mydata,9);
+  Serial.print("mode=");Serial.print(mode);
+  Serial.print(" - sendStatus sents ");
   Serial.print(numBytes);
   Serial.println(" bytes");
 }
 
 void sendSync(unsigned long thisTick) {  
-  byte mydata[10];
-  mydata[0] = START_MSG;      
-  mydata[1] = DATA_TYPE; // 0x44 D=DATA; 0x53 S=SYNC
-  mydata[2] = DATA_SYNC; // DATA_SYNC SYNC_TYPE
-  mydata[3] = (int)((thisTick >> 24) & 0xFF) ;
-  mydata[4] = (int)((thisTick >> 16) & 0xFF) ;
-  mydata[5] = (int)((thisTick >> 8) & 0XFF);
-  mydata[6] = (int)(thisTick & 0XFF);
-  mydata[7] = (int)(loggingStatus & 0XFF);
-  mydata[8] = (int)((loggingStatus >>8 ) & 0XFF);
-  mydata[9] = END_MSG;
-  int numBytes = Serial1.write(mydata,10);
+  byte mydata[9];
+  mydata[0] = START_MSG;  
+  mydata[1] = DATA_SYNC; // DATA_SYNC SYNC_TYPE
+  mydata[2] = (int)((thisTick >> 24) & 0xFF) ;
+  mydata[3] = (int)((thisTick >> 16) & 0xFF) ;
+  mydata[4] = (int)((thisTick >> 8) & 0XFF);
+  mydata[5] = (int)(thisTick & 0XFF);
+  mydata[6] = (int)(loggingStatus & 0XFF);
+  mydata[7] = (int)((loggingStatus >>8 ) & 0XFF);
+  mydata[8] = END_MSG;
+  int numBytes = Serial1.write(mydata,9);
   Serial.print("sendSync sents ");
   Serial.print(numBytes);
   Serial.println(" bytes");
 }
 
 
+void sendAData(unsigned long thisTick, sensors_event_t acc_event) {  
+  byte mydata[13];
+  mydata[0] = START_MSG;     
+  mydata[1] = DATA_14BA; // DATA_26BDATA_26BDATA_26BDATA_26BDATA_26B
+  mydata[2] = (int)((thisTick >> 24) & 0xFF) ;
+  mydata[3] = (int)((thisTick >> 16) & 0xFF) ;
+  mydata[4] = (int)((thisTick >> 8) & 0XFF);
+  mydata[5] = (int)((thisTick & 0XFF));
+  mydata[6] = acc_event.acceleration.xlo;
+  mydata[7] = acc_event.acceleration.xhi;
+  mydata[8] = acc_event.acceleration.ylo;
+  mydata[9] = acc_event.acceleration.yhi;
+  mydata[10] = acc_event.acceleration.zlo;
+  mydata[11] = acc_event.acceleration.zhi;
+  mydata[12] = END_MSG;
+  int numBytes = Serial1.write(mydata,13);
+}
+
+
+void sendMData(unsigned long thisTick, sensors_event_t mag_event) {  
+  byte mydata[13];
+  mydata[0] = START_MSG;   
+  mydata[1] = DATA_14BM; // DATA_26BDATA_26BDATA_26BDATA_26BDATA_26B
+  mydata[2] = (int)((thisTick >> 24) & 0xFF) ;
+  mydata[3] = (int)((thisTick >> 16) & 0xFF) ;
+  mydata[4] = (int)((thisTick >> 8) & 0XFF);
+  mydata[5] = (int)((thisTick & 0XFF));
+  mydata[6] = mag_event.magnetic.xlo;
+  mydata[7] = mag_event.magnetic.xhi;
+  mydata[8] = mag_event.magnetic.ylo;
+  mydata[9] = mag_event.magnetic.yhi;
+  mydata[10] = mag_event.magnetic.zlo;
+  mydata[11] = mag_event.magnetic.zhi;
+  mydata[12] = END_MSG;
+  int numBytes = Serial1.write(mydata,13);
+}
+
+void sendGData(unsigned long thisTick, sensors_event_t gyro_event) {  
+  byte mydata[13];
+  mydata[0] = START_MSG;    
+  mydata[1] = DATA_14BG; // DATA_26BDATA_26BDATA_26BDATA_26BDATA_26B
+  mydata[2] = (int)((thisTick >> 24) & 0xFF) ;
+  mydata[3] = (int)((thisTick >> 16) & 0xFF) ;
+  mydata[4] = (int)((thisTick >> 8) & 0XFF);
+  mydata[5] = (int)((thisTick & 0XFF));
+  mydata[6] = gyro_event.gyro.xlo;
+  mydata[7] = gyro_event.gyro.xhi;
+  mydata[8] = gyro_event.gyro.ylo;
+  mydata[9] = gyro_event.gyro.yhi;
+  mydata[10] = gyro_event.gyro.zlo;
+  mydata[11] = gyro_event.gyro.zhi;
+  mydata[12] = END_MSG;
+  int numBytes = Serial1.write(mydata,13);
+}
+
 void sendAMGData(unsigned long thisTick, sensors_event_t acc_event,  sensors_event_t mag_event, sensors_event_t gyro_event) {  
-  byte mydata[26];
-  mydata[0] = START_MSG;      
-  mydata[1] = DATA_TYPE; // 0x44 D=DATA; 0x53 S=SYNC
-  mydata[2] = DATA_26B; // DATA_26BDATA_26BDATA_26BDATA_26BDATA_26B
-  mydata[3] = (int)((thisTick >> 24) & 0xFF) ;
-  mydata[4] = (int)((thisTick >> 16) & 0xFF) ;
-  mydata[5] = (int)((thisTick >> 8) & 0XFF);
-  mydata[6] = (int)((thisTick & 0XFF));
-  mydata[7] = acc_event.acceleration.xlo;
-  mydata[8] = acc_event.acceleration.xhi;
-  mydata[9] = acc_event.acceleration.ylo;
-  mydata[10] = acc_event.acceleration.yhi;
-  mydata[11] = acc_event.acceleration.zlo;
-  mydata[12] = acc_event.acceleration.zhi;
-  mydata[13] = mag_event.magnetic.xlo;
-  mydata[14] = mag_event.magnetic.xhi;
-  mydata[15] = mag_event.magnetic.ylo;
-  mydata[16] = mag_event.magnetic.yhi;
-  mydata[17] = mag_event.magnetic.zlo;
-  mydata[18] = mag_event.magnetic.zhi;
-  mydata[19] = gyro_event.gyro.xlo;
-  mydata[20] = gyro_event.gyro.xhi;
-  mydata[21] = gyro_event.gyro.ylo;
-  mydata[22] = gyro_event.gyro.yhi;
-  mydata[23] = gyro_event.gyro.zlo;
-  mydata[24] = gyro_event.gyro.zhi;
-  mydata[25] = END_MSG;
-  int numBytes = Serial1.write(mydata,26);
+  byte mydata[25];
+  mydata[0] = START_MSG;  
+  mydata[1] = DATA_26B; // DATA_26BDATA_26BDATA_26BDATA_26BDATA_26B
+  mydata[2] = (int)((thisTick >> 24) & 0xFF) ;
+  mydata[3] = (int)((thisTick >> 16) & 0xFF) ;
+  mydata[4] = (int)((thisTick >> 8) & 0XFF);
+  mydata[5] = (int)((thisTick & 0XFF));
+  mydata[6] = acc_event.acceleration.xlo;
+  mydata[7] = acc_event.acceleration.xhi;
+  mydata[8] = acc_event.acceleration.ylo;
+  mydata[9] = acc_event.acceleration.yhi;
+  mydata[10] = acc_event.acceleration.zlo;
+  mydata[11] = acc_event.acceleration.zhi;
+  mydata[12] = mag_event.magnetic.xlo;
+  mydata[13] = mag_event.magnetic.xhi;
+  mydata[14] = mag_event.magnetic.ylo;
+  mydata[15] = mag_event.magnetic.yhi;
+  mydata[16] = mag_event.magnetic.zlo;
+  mydata[17] = mag_event.magnetic.zhi;
+  mydata[18] = gyro_event.gyro.xlo;
+  mydata[19] = gyro_event.gyro.xhi;
+  mydata[20] = gyro_event.gyro.ylo;
+  mydata[21] = gyro_event.gyro.yhi;
+  mydata[22] = gyro_event.gyro.zlo;
+  mydata[23] = gyro_event.gyro.zhi;
+  mydata[24] = END_MSG;
+  int numBytes = Serial1.write(mydata,25);
 }
 
 void processInputString(char *myString) {
@@ -149,18 +208,25 @@ void processInputString(char *myString) {
     byte mydata[14];
     unsigned long thisTick = millis ();
     if( sIn.startsWith("SYNC") ){
+      last_tick = thisTick;
       sendSync(thisTick);      
       Serial.print("SYNC;");Serial.println(thisTick);
     } else {
       if( sIn.startsWith("STOP") ){
+        last_tick = thisTick;
         loggingStatus = 0;
         Serial.println("Status is: Stopped (0)");
       }
       if( sIn.startsWith("STRT") ){
+        last_tick = thisTick;
         loggingStatus = 1;
         Serial.println("Status is: Started (1)");
+        sendStatus(thisTick, 0);
       }
-      sendStatus(thisTick);
+      if( sIn.startsWith("STAT") ){
+        Serial.println("Status is: " + String( loggingStatus ));
+        sendStatus(thisTick, 0);
+      }
     }
 }
 
@@ -174,8 +240,8 @@ void setup(void)
   digitalWrite(13,HIGH);
   delay(500);
   digitalWrite(13,LOW);
-  Serial.begin(baudrate);
-  Serial1.begin(baudrate);
+  Serial.begin(serialbaudrate);
+  Serial1.begin(arduinobaudrate);
   // Wait for U-boot to finish startup.  Consume all bytes until we are done.
   do {
      while (Serial1.available() > 0) {
@@ -207,8 +273,8 @@ void setup(void)
     while(1);
   }
   millisAtSetup = millis();
-  lastTick = millisAtSetup;
-  lastSyncTick =  lastTick;
+  logTick = millisAtSetup;
+  lastSyncTick =  logTick;
   loggingStatus = 0;
   delay(500);
   digitalWrite(13,HIGH);
@@ -225,62 +291,54 @@ void setup(void)
   parsingMessage = false;
   Serial.println("Started!");
   Serial.println("Status is: Stopped (0)");
+  start = millis();
+  idelay = 0;
+}
+
+void check_input() {
+  while(Serial1.available()>0) {
+    processSerialInput();
+  }
 }
 
 void loop(void) 
 {
-  while(Serial1.available()>0) {
-    processSerialInput();
-  }
-  if(digitalRead(13)==HIGH) digitalWrite(13,LOW);
+  check_input();
   unsigned long thisTick = millis ();
-  if(loggingStatus > 0) {
-    if ( thisTick >= lastTick + 2 ) {   
+  if( ireg == 0 || thisTick - last_tick > syncInterval ) {
+    if(digitalRead(13)==HIGH) digitalWrite(13,LOW);
+    last_tick = thisTick;
+    if(loggingStatus == 0 ) sendStatus(thisTick,1);
+    ireg = 1;
+    Serial.println(" End Node Subscribed!");
+  } else if(ireg == 1 && loggingStatus > 0) {
+    if(loggingStatus == 1 ) {        
+      digitalWrite(13,HIGH);
       sensors_event_t acc_event;    
       sensors_event_t mag_event;    
       sensors_event_t gyro_event;  
       accel.getEvent(&acc_event);
       mag.getEvent(&mag_event);
       gyro.getEvent(&gyro_event);
-      lastTick = thisTick;
-      String sData;
-      sData += "DATA;";
-      sData += String(lastTick);
-      sData += ";";
-      sData += String(acc_event.acceleration.x);
-      sData += ";";
-      sData += String(acc_event.acceleration.y);
-      sData += ";";
-      sData += String(acc_event.acceleration.z);
-      sData += ";";
-      sData += String(mag_event.magnetic.x);
-      sData += ";";
-      sData += String(mag_event.magnetic.y);
-      sData += ";";
-      sData += String(mag_event.magnetic.z);
-      sData += ";";
-      sData += String(gyro_event.gyro.x);
-      sData += ";";
-      sData += String(gyro_event.gyro.y);
-      sData += ";";
-      sData += String(gyro_event.gyro.z);
-      Serial.println(sData);
-      //Serial1.println(sData);
-      sendAMGData(lastTick,acc_event,mag_event, gyro_event);  
+      sendAMGData(thisTick,acc_event,mag_event, gyro_event);
+      /*sendAData(thisTick,acc_event);
+      sendMData(thisTick,mag_event);
+      sendGData(thisTick,gyro_event);*/
+    } else if (loggingStatus == 2 ) {
+      Serial.print("At ");Serial.print(logTick);
+      Serial.println(" Status 2");
+    } else {
+      Serial.print(loggingStatus);Serial.println(" Boh");
+      
     }
   } else {
-    digitalWrite(13,LOW);
-    delay(1000);
-    digitalWrite(13,HIGH);
-    delay(300);
-    digitalWrite(13,LOW);
-    delay(1000);
-    digitalWrite(13,HIGH);
-    delay(300);
-    digitalWrite(13,LOW);
-    delay(1000);
-    digitalWrite(13,HIGH);
-    delay(2000);
-  }
+    unsigned long mmi = millis();
+    if( mmi - millisdelay >= 500 )
+    {
+      millisdelay = mmi;
+      if(digitalRead(13)==HIGH) digitalWrite(13,LOW);
+      else digitalWrite(13,HIGH);
+    }
+  }   
 }
 
