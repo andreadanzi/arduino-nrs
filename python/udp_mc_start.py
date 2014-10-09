@@ -96,20 +96,22 @@ class NrsStartProtocol(DatagramProtocol):
         self.printline = printline
         
     def datagramReceived(self, datagram, (host, port)):
-        logger.info( "Datagram %s received from %s" % (repr(datagram), host))
         if datagram.startswith("RET_SYNC;"):
             # "SYNC;%s;%ld;%s;%d" % (self.indata, long_millis,self.localDateTime,intdata)
             # 'SYNC;2014;10;04;07;54;52;819183;4985455;2014;10;04;07;54;52;752975;0'
             istatus = datagram.split(';')
             subscribed_nodes[host] = (istatus[-1],istatus[8])            
             self.printline("sync %s-%s" % (host,istatus[-1]))
+            logger.info( "sync(%s) received from %s" % (istatus[-1], host))
         if datagram.startswith("ACK;"):
             #strOut="ACK;%ld;%d" % (long_millis,intdata)
             istatus = datagram.split(';')
             subscribed_nodes[host] = (istatus[-1],istatus[1])
             self.printline("ack %s-%s" % (host,istatus[-1]))
+            logger.info( "ack(%s) received from %s" % (istatus[-1], host))
         if datagram.startswith("RET_LOG"):
-            self.printline(datagram)            
+            self.printline(datagram)
+            logger.info( "%s received from %s" % (repr(datagram), host))
             
 
     # qui sul master deve leggere ntp e spedire date time fino ai millis

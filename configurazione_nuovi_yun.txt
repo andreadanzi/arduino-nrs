@@ -18,9 +18,14 @@ configurazione nuovo YUN
   - attendere le istruzioni, fino dopo al rst
 - installare la roba per python come su http://tavendo.com/blog/post/arduino-yun-with-autobahn/
   - creare cartella src e log all'interno della SD
+  - zope interfaces
   - twisted
+    - bisogna commentare in setup.py la riga 85 con conditionalExtensions=getExtensions(),
   - pyserial
   - ntplib
+Preparare una cartella con tutto ed eeseguire 
+
+sshpass -p 'password' scp -r user@example.com:/some/remote/path /some/local/path
 
 - disabilitare serial1 in /etc/inittab
   -# ttyATH0::askfirst:/bin/ash --login
@@ -30,18 +35,49 @@ configurazione nuovo YUN
   >dropbearkey -y -f ~/.ssh/id_rsa | grep "^ssh-rsa " >> authorized_keys
   >appendere authorized_keys nell'host di destinazione
 
+
+ssh andrea@192.168.0.3 -i "/root/.ssh/id_rsa"
+
+
 - Salvarsi il mac address e configurare il router (rdyun02 è  90:A2:DA:F0:31:CE => 192.168.1.19) per assegnazione statica IP
 
 - Caricare lo sketch serial_imu su slave
 
-- Copiare in /mnt/sd/src dello slave
-    scp udp_mc_client_serial.py root@192.168.1.19:/mnt/sd/src
-    scp udp_mc_client.conf  root@192.168.1.19:/mnt/sd/src
+- Copiare in /mnt/sd/src dello slave (fare uno script)
+    scp yun_serial_writer.py root@192.168.1.19:/mnt/sd/src
+    scp udp_mc_client.conf  root@192.168.1.19:/mnt/sd/src  MODIFICARE NOME RDYUN01 02 etc
+    scp nrs copiare nrs anche in /bin
+    scp reset_atmega.sh
+
+Preparare una cartella con tutto ed eeseguire 
+
+sshpass -p 'password' scp -r user@example.com:/some/remote/path /some/local/path
 
     lanciare twistd -ny udp_mc_client_serial.py
 
-- Lanciare da master
-    python udp_mc_start.py -c SYNC
+- Lanciare da remoto (preparare bash)
+    sshpass -p  "arduino" ssh root@192.168.0.6 'nrs start'
 
 
+Vodafone 192.168.1.1
+xkghgcsadtglcoazjnbkrpay
+DHCP res
+rdyun01	90:a2:da:f0:2e:a8	192.168.1.15
+rdyun02	90:a2:da:f0:31:ce	192.168.1.19
+andrea-rd	1c:65:9d:85:75:44	192.168.1.3
 
+Tp-Link 192.168.0.254
+24907415
+DHCP res
+rdyun01	90:a2:da:f0:2e:a8	192.168.0.15
+rdyun02	90:a2:da:f0:31:ce	192.168.0.19
+andrea-rd	1c:65:9d:85:75:44	192.168.0.3
+
+NRS WLAN
+WPA+WPA2
+0512522348508241
+
+DHCP res 192.168.0.1
+rdyun01	90:a2:da:f0:2e:a8	192.168.0.6
+rdyun02	90:a2:da:f0:31:ce	192.168.0.5
+andrea-rd	1c:65:9d:85:75:44	192.168.0.3

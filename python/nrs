@@ -7,8 +7,11 @@ STOP=45
 
 start() {
         cd /mnt/sd/src/ 
-        twistd --syslog --pidfile /mnt/sd/src/nrs_twistd.pid -y /mnt/sd/src/yun_serial_writer.py
-        echo started
+        twistd -l /mnt/sd/src/nrs_twistd.log --pidfile /mnt/sd/src/nrs_twistd.pid -y /mnt/sd/src/yun_serial_writer.py
+	    echo "twistd started"
+        sleep 6
+        /mnt/sd/src/reset_atmega.sh        
+        echo "arduino reset performed"
         # commands to launch application
 }
 

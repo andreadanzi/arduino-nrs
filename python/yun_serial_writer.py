@@ -34,7 +34,8 @@ from collections import deque
 
 config = ConfigParser.ConfigParser()
 config.read('udp_mc_client.conf')
-
+firstTime = 0
+globalStatus = 0
 DATA_SYNC = 0x71
 DATA_ACK = 0x7E
 DATA_10B = 0x7F
@@ -51,6 +52,9 @@ SENSORS_GAUSS_TO_MICROTESLA = 100.0
 SENSORS_GRAVITY_STANDARD = 9.80665
 GYRO_SENSITIVITY_2000DPS = 0.070
 SENSORS_DPS_TO_RADS = 0.017453293
+
+def mapf( x, in_min=0, in_max=1023, scalef=200):    
+    return float((x - in_min) * 2.0 * scalef )/ float((in_max - in_min)) - float(scalef);
 
 class ImuSerial(Serial):
     def __init__(self, *args, **kwargs):
@@ -166,7 +170,7 @@ def am_i_alive():
     logger.info("Writer Alive")
 
 
-def sendDataLog(sendAll=False):
+def sendDataLog(sendAll=False, bRemove = True):
     logger.info("Main:sendDataLog(%s)" % str(sendAll))
     copyed_size = 0L
     copyed_items = 0
@@ -181,11 +185,12 @@ def sendDataLog(sendAll=False):
         scpCommand = 'scp "%s" "%s@%s:%s" -i "/root/.ssh/id_rsa"' % (file, config.get('ssh', 'remote_username'),config.get('ssh', 'remote_ssh_host_ip'), remotefile)
         logger.info("Main:sendDataLog scpCommand %s " % scpCommand)
         retCode = os.system(scpCommand)
+        logger.info("Main:sendDataLog scp retCode is %d" % retCode)
         if retCode==0:
             copyed_size += statinfo.st_size
             copyed_items += 1
-            os.remove(file)
-            logger.info("Main:sendDataLog file %s removed after scp copied to %s" % (file,config.get('ssh', 'remote_ssh_host_ip')))
+            if bRemove:
+                os.remove(file)
         else:
             logger.error("Main:sendDataLog unable to scp file %s to %s" % (file,config.get('ssh', 'remote_ssh_host_ip')))
     return copyed_size , copyed_items
@@ -248,7 +253,7 @@ class NrsWriterClientProtocol(DatagramProtocol):
             logger.info("NrsWriterClientProtocol:datagramReceived %s from %s:%d" % (datagram,host, port))
             self.transport.write("STATUS received", (host, port))
         if datagram[:6] == "GETLOG":
-            copyed_size, copyed_items = sendDataLog()
+            copyed_size, copyed_items = sendDataLog(sendAll=True, bRemove = False)
             self.sendLog(copyed_size, copyed_items)
         if datagram[:5] == "EXIT":
             self.exitBoard()
@@ -300,7 +305,7 @@ class NrsWriterClientProtocol(DatagramProtocol):
             gyrox = float(lgx) * GYRO_SENSITIVITY_2000DPS * SENSORS_DPS_TO_RADS
             gyroy = float(lgy) * GYRO_SENSITIVITY_2000DPS * SENSORS_DPS_TO_RADS
             gyroz = float(lgz) * GYRO_SENSITIVITY_2000DPS * SENSORS_DPS_TO_RADS            
-            strOut="%ld;%f;%f;%f;%f;%f;%f;%f;%f;%f" % (long_millis,accx,accy,accz,magx,magy,magz,gyrox,gyroy,gyroz)
+            strOut="%ld;%d;%d;%d;%d;%d;%d;%d;%d;%d" % (long_millis,lax,lay,laz,lmx,lmy,lmz,lgx,lgy,lgz)
             self.lastmillis = long_millis
             self.datalogger.info(strOut)
         else:
@@ -380,6 +385,7 @@ class NrsWriterClientProtocol(DatagramProtocol):
             self.transport.write(strOut,(config.get('ssh', 'remote_ssh_host_ip'), int(config.get('udp', 'port'))))
             logger.info(strOut)
             synclogger.info(strOut)
+            globalStatus = intdata
         else:
             logger.error("NrsReaderClientProtocol::parse_data_6b_sync_message recevived data with %d bytes " % len(received_data))
     
@@ -394,6 +400,7 @@ class NrsWriterClientProtocol(DatagramProtocol):
             self.lastmillis = long_millis
             self.transport.write(strOut,(config.get('ssh', 'remote_ssh_host_ip'), int(config.get('udp', 'port'))))
             logger.info(strOut)
+            globalStatus = intdata
         else:
             logger.error("NrsReaderClientProtocol::parse_data_6b_ack_message recevived data with %d bytes " % len(received_data))
 
@@ -461,11 +468,18 @@ class CustomTimerService(internet.TimerService):
 class SyncMulticatstWriterSlave(object):
     
     def send_log(self, protoReader,sendAll=False):
-        copyed_size , copyed_items = sendDataLog(sendAll)
-        protoReader.sendLog(copyed_size, copyed_items)
+        copyed_size = 0
+        copyed_items = 0
+        if self.firstTime == 0:
+            self.firstTime = 1;
+            pass
+        else:
+            copyed_size , copyed_items = sendDataLog(sendAll)
+            protoReader.sendLog(copyed_size, copyed_items)
         return copyed_size , copyed_items
     
     def makeService(self, dtLogger):
+        self.firstTime = 0
         logger.info("starting makeService....")     
         application = service.Application('SyncMulticatstWriterSlave')
         root = service.MultiService()
@@ -479,8 +493,8 @@ class SyncMulticatstWriterSlave(object):
         # CUSTOM
         root.addService(CustomTimerService(float(config.get('timer', 'send_log_interval')), self.send_log, protoWriter, False))
         logger.info("CustomTimerService added!")
-        root.addService(internet.TimerService(60, am_i_alive))
-        logger.info("Alive TimerService added!")
+        #root.addService(internet.TimerService(60, am_i_alive))
+        #logger.info("Alive TimerService added!")
         logger.info("makeService terminated")
         return application
 
